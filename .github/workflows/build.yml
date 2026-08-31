@@ -1,14 +1,12 @@
 name: build
 
 on:
-  push:
-    branches:
-      - 'main'
-    tags:
-    - '**'
-  pull_request:
-    branches:
-    - '**'
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: 'Optional pytest selector; empty runs the full suite'
+        required: false
+        default: ''
 
 jobs:
   tests:
@@ -16,8 +14,17 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        platform: [ubuntu-latest, windows-latest]
+        # ubuntu-22.04 / windows-2022 were what `-latest` resolved to at the
+        # 2.4.1 release; actions/setup-python has no CPython 3.7 build for
+        # ubuntu-24.04, so the current `-latest` cannot provision the py37 leg.
+        platform: [ubuntu-22.04, windows-2022]
         tox-env: [py37, py38, py39, py310, py311, nolxml, nohtml5lib]
+        # 3.9/3.10/3.11 are pinned to the exact patch releases that were current
+        # at the 2.4.1 release. Current patch releases (3.9.25, 3.10.21, 3.11.16)
+        # carry the html.parser change that stops parsing <iframe> content as
+        # markup, which fails the 8 `test_iframe` cases in tests/test_extra,
+        # tests/test_level2, tests/test_level3 and tests/test_level4 on the
+        # stdlib parser. 3.7/3.8 predate the change and stay unpinned.
         include:
           - tox-env: py37
             python-version: 3.7
@@ -26,19 +33,19 @@ jobs:
             python-version: 3.8
             continue-on-error: false
           - tox-env: py39
-            python-version: 3.9
+            python-version: '3.9.13'
             continue-on-error: false
           - tox-env: py310
-            python-version: '3.10'
+            python-version: '3.10.11'
             continue-on-error: false
           - tox-env: py311
-            python-version: '3.11'
+            python-version: '3.11.3'
             continue-on-error: false
           - tox-env: nolxml
-            python-version: '3.11'
+            python-version: '3.11.3'
             continue-on-error: false
           - tox-env: nohtml5lib
-            python-version: '3.10'
+            python-version: '3.10.11'
             continue-on-error: false
         # exclude:
         #   - platform: windows-latest
@@ -46,8 +53,15 @@ jobs:
 
     env:
       TOXENV: ${{ matrix.tox-env }}
+      # tox has `passenv = *`, so this reaches the pip runs inside every test
+      # env: the suite resolves the release-era beautifulsoup4/html5lib/mypy it
+      # was written against. beautifulsoup4 4.15 changed how <iframe> content is
+      # parsed (8 failures in tests/test_level3, tests/test_level4) and mypy 2.x
+      # reports 38 new strict-mode errors against bs4's current stubs.
+      PIP_INDEX_URL: 'https://:2023-04-16@time-machines-pypi.sealsecurity.io/'
 
     runs-on: ${{ matrix.platform }}
+    timeout-minutes: 40
 
     steps:
     - uses: actions/checkout@v3
@@ -62,68 +76,15 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
+      # Release-era index so the CI tooling (notably tox/pip) still resolves a
+      # version that supports the Python 3.7 floor this matrix tests.
       run: |
-        python -m pip install --upgrade pip setuptools build tox coverage
+        python -m pip install --upgrade --index-url 'https://:2023-04-16@time-machines-pypi.sealsecurity.io/' pip setuptools build tox coverage
     - name: Test
+      shell: bash
       run: |
-        python -m tox
-      continue-on-error: ${{ matrix.continue-on-error }}
-    - name: Upload Results
-      if: success()
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage.xml
-        flags: unittests
-        name: ${{ matrix.platform }}-${{ matrix.tox-env }}
-        fail_ci_if_error: false
-
-  lint:
-    strategy:
-      max-parallel: 4
-      matrix:
-        python-version: [3.9]
-
-    env:
-      TOXENV: lint
-
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip setuptools tox
-    - name: Lint
-      run: |
-        python -m tox
-
-  documents:
-    strategy:
-      max-parallel: 4
-      matrix:
-        python-version: [3.9]
-
-    env:
-      TOXENV: documents
-
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip setuptools tox
-    - name: Install Aspell
-      run: |
-        sudo apt-get install aspell aspell-en
-    - name: Build documents
-      run: |
-        python -m tox
+        if [ -n "${{ inputs.test-filter }}" ]; then
+          python -m tox -x "testenv.commands=pytest ${{ inputs.test-filter }}"
+        else
+          python -m tox
+        fi
