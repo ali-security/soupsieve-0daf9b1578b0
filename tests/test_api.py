@@ -590,6 +590,78 @@ class TestInvalid(util.TestCase):
         with self.assertRaises(TypeError):
             sv.filter('div', "not a tag", flags=flags)
 
+    def test_excessive_selectors(self):
+        """Test excessive selectors."""
+
+        # Build a selector string: "a,a,a,...,a"
+        count = 10000
+        selector = ",".join("a" for _ in range(count))
+
+        # Compile the selector
+        with self.assertRaises(ValueError):
+            sv.compile(selector)
+
+    def test_excessive_group_selectors(self):
+        """Test excessive selectors in `:is()` and `:where()`."""
+
+        count = 10000
+        selector = ':is({})'.format("," * count)
+
+        # Compile the selector
+        with self.assertRaises(ValueError):
+            sv.compile(selector)
+
+        selector = ':where({})'.format("," * count)
+
+        # Compile the selector
+        with self.assertRaises(ValueError):
+            sv.compile(selector)
+
+    def test_excessive_custom_selectors(self):
+        """Test excessive custom selectors."""
+
+        # Build a selector string: "a,a,a,...,a"
+        count = 10000
+        selector = ",".join("a" for _ in range(count))
+
+        # Compile the selector
+        with self.assertRaises(ValueError):
+            sv.compile('div:--custom', custom={':--custom': selector})
+
+    def test_excessive_custom_and_normal_selectors(self):
+        """Test excessive custom and normal selectors."""
+
+        count = 5000
+        selector = ",".join("a" for _ in range(count))
+
+        # Compile the selector
+        with self.assertRaises(ValueError):
+            sv.compile(':is({}):--custom'.format(selector), custom={':--custom': selector})
+
+    def test_excessive_expanded_pseudo_class_selectors(self):
+        """Test excessive selectors expanded from a pre-built pseudo-class pattern."""
+
+        # `:read-only` expands to a pre-built selector list of its own, so each
+        # occurrence costs far more than the single token it is written as.
+        count = 500
+        with self.assertRaises(ValueError):
+            sv.compile(",".join(':read-only' for _ in range(count)))
+
+        # The same number of plain selectors is nowhere near the limit, so the
+        # failure above comes from the expansion, not the raw selector count.
+        sv.compile(",".join('a' for _ in range(count)))
+
+    def test_excessive_nth_of_default_selectors(self):
+        """Test excessive selectors expanded from the default `of S` pattern of `nth` pseudo-classes."""
+
+        # Each `:nth-child()` without `of S` pulls in the default `*|*` selector list.
+        count = 5000
+        with self.assertRaises(ValueError):
+            sv.compile(",".join(':nth-child(1)' for _ in range(count)))
+
+        # The same number of plain selectors is under the limit.
+        sv.compile(",".join('a' for _ in range(count)))
+
 
 class TestSyntaxErrorReporting(util.TestCase):
     """Test reporting of syntax errors."""
