@@ -1,5 +1,6 @@
 """Test language selectors."""
 from .. import util
+from soupsieve import SelectorSyntaxError
 
 
 class TestLang(util.TestCase):
@@ -401,3 +402,10 @@ class TestLang(util.TestCase):
             [],
             flags=util.XHTML
         )
+
+    def test_bad_language_unclused(self):
+        """Test bad language fails for syntax error, not timeout error."""
+
+        self.assert_raises_fast(':lang("' + ('x' * 300), SelectorSyntaxError)
+        self.assert_raises_fast(":lang('" + ('x' * 300), SelectorSyntaxError)
+        self.assert_raises_fast(':lang(' + ('x' * 300), SelectorSyntaxError)

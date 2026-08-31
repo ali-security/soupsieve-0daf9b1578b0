@@ -1,5 +1,6 @@
 """Test utilities."""
 import unittest
+import time
 import bs4
 import textwrap
 import soupsieve as sv
@@ -23,6 +24,11 @@ XHTML = 0x4
 XML = 0x8
 PYHTML = 0x10
 LXML_HTML = 0x20
+
+# Generous upper bound, in seconds, for compiling a malformed selector. A pattern that
+# backtracks catastrophically takes practically forever, a well behaved one microseconds,
+# so anything in between is timing noise on a slow machine.
+COMPILE_TIMEOUT = 10
 
 
 def skip_no_lxml(func):
@@ -102,6 +108,15 @@ class TestCase(unittest.TestCase):
         print('----Running Assert Test----')
         with self.assertRaises(exception):
             self.compile_pattern(pattern, namespaces=namespace, custom=custom)
+
+    def assert_raises_fast(self, pattern, exception, namespace=None, custom=None, timeout=COMPILE_TIMEOUT):
+        """Assert raises without taking an unreasonable amount of time to do so."""
+
+        print('----Running Assert Fast Test----')
+        start = time.perf_counter()
+        with self.assertRaises(exception):
+            self.compile_pattern(pattern, namespaces=namespace, custom=custom)
+        self.assertLess(time.perf_counter() - start, timeout)
 
     def assert_selector(self, markup, selectors, expected_ids, namespaces={}, custom=None, flags=0):
         """Assert selector."""
